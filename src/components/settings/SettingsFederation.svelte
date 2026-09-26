@@ -111,8 +111,8 @@
         ntConnectionVerified.set(true);
         if (!silentOk) showSuccess(`Connected to NutriTrace as ${lastConnectedUser}`);
       } else {
-        testStatus = 'fail';
-        lastError = body.error || 'Connection failed';
+        testStatus = preserveExistingOnFail ? '' : 'fail';
+        lastError = preserveExistingOnFail ? '' : (body.error || 'Connection failed');
         capabilities = null;
         bodyStatus = '';
         bodyError = '';
@@ -123,8 +123,8 @@
         if (!silentFail) showError(lastError);
       }
     } catch (e) {
-      testStatus = 'fail';
-      lastError = e.message || 'Connection failed';
+      testStatus = preserveExistingOnFail ? '' : 'fail';
+      lastError = preserveExistingOnFail ? '' : (e.message || 'Connection failed');
       capabilities = null;
       bodyStatus = '';
       bodyError = '';
@@ -215,7 +215,7 @@
             <Toggle bind:checked={$ntBodySyncEnabled} on:change={onBodySyncToggle} disabled={!bodyReadAvailable || !$ntFederationEnabled} />
           </div>
 
-          {#if $ntConnectionVerified && !bodyReadAvailable}
+          {#if $ntConnectionVerified && capabilities && !bodyReadAvailable}
             <p class="body-sync-warning">{$_('settings_federation.body_sync_scope_missing')}</p>
           {/if}
 
