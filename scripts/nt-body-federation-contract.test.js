@@ -50,7 +50,7 @@ test('body sync settings and lifecycle are opt-in and foreground-triggered', () 
   const ssEnd = settings.indexOf(']);', ssStart);
   assert.ok(ssStart >= 0 && ssEnd > ssStart, 'SERVER_SETTINGS literal not found');
   const serverSettings = settings.slice(ssStart, ssEnd);
-  for (const key of ['ntBodySyncEnabled', 'ntBodySource', 'ntBodyLastSyncAt']) {
+  for (const key of ['ntBodySyncEnabled', 'ntBodySource', 'ntBodySyncedSource', 'ntBodyLastSyncAt']) {
     assert.match(settings, new RegExp(`'${key}'`));
     assert.match(settings, new RegExp(`createSettingStore\\('${key}'`));
     assert.match(serverSettings, new RegExp(`'${key}'`));
@@ -59,6 +59,10 @@ test('body sync settings and lifecycle are opt-in and foreground-triggered', () 
   assert.match(federation, /syncNtBodyMeasurements\(\{ manual: true \}\)/);
   assert.match(federation, /on:change=\{onBodySyncToggle\}/);
   assert.match(federation, /if \(event\.detail\) syncBodyNow\(\);/);
+  assert.match(federation, /preserveExistingOnFail = false/);
+  assert.match(federation, /if \(!preserveExistingOnFail\) \{[\s\S]*?ntFederationEnabled\.set\(false\);[\s\S]*?ntConnectionVerified\.set\(false\);[\s\S]*?\}/);
+  assert.match(federation, /test\(\{ silentOk: true, silentFail: true, preserveExistingOnFail: true \}\)/);
+  assert.match(federation, /body_sync_source_change_blocked/);
   assert.match(app, /await loadAuthState\(\);[\s\S]{0,260}_syncNtBodySilently\(\);/);
   assert.match(app, /visibilitychange[\s\S]{0,140}_syncNtBodySilently\(\);/);
   assert.match(app, /addListener\('resume'[\s\S]{0,180}_syncNtBodySilently\(\);/);
@@ -72,4 +76,13 @@ test('existing workout proxy remains a separate POST contract', () => {
   assert.match(workout, /method: 'POST'/);
   assert.match(workout, /external_id: String\(external_id\)/);
   assert.doesNotMatch(workout, /body-measurements/);
+});
+
+
+test('passive capability refresh preserves an established workout federation on transport failure', () => {
+  assert.match(federation, /async function test\(\{ silentOk = false, silentFail = false, preserveExistingOnFail = false \} = \{\}\)/);
+  const failGuards = federation.match(/if \(!preserveExistingOnFail\) \{\s*ntFederationEnabled\.set\(false\);\s*ntConnectionVerified\.set\(false\);\s*\}/g) || [];
+  assert.equal(failGuards.length, 2, 'both non-ok and catch paths must preserve existing federation during passive probes');
+  assert.match(federation, /test\(\{ silentOk: true, silentFail: true, preserveExistingOnFail: true \}\)/);
+  assert.match(federation, /if \(!bodyRead\) ntBodySyncEnabled\.set\(false\)/, 'a successful capability result may still disable body sync when its optional scope is missing');
 });
