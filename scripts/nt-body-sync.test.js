@@ -235,3 +235,120 @@ test('selected source maps display units, preserves manual stats, updates curren
   assert.equal(second.writes, 0);
   assert.equal(writes.length, 1);
 });
+
+
+test('auto-selected source stays automatic while recording separate sync provenance', async () => {
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store(''), ntBodySyncedSource: store(''), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  const api = {
+    async getNtBodyMeasurements() {
+      return { measurements: [observation('2026-08-15', 'source-a', { weight_kg: 73.1 })] };
+    },
+    async getBodyStatsRange() { return [{ date: '2026-08-15', stats: { weight: 73.1 } }]; },
+    async saveBodyStats() { throw new Error('identical observation must not write'); },
+  };
+  const result = await syncNtBodyMeasurements({ settings, api, manual: true, now: Date.parse('2026-09-26T12:00:00Z') });
+  assert.equal(result.status, 'ok');
+  assert.equal(settings.ntBodySource.get(), '', 'automatic mode must remain automatic');
+  assert.equal(settings.ntBodySyncedSource.get(), 'source-a', 'separate provenance marker records the imported source');
+});
+
+test('auto mode becomes ambiguous if a second relevant source appears later', async () => {
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store(''), ntBodySyncedSource: store('source-a'), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(73.1),
+  };
+  let rangeCalls = 0;
+  const api = {
+    async getNtBodyMeasurements() {
+      return { measurements: [
+        observation('2026-08-15', 'source-a', { weight_kg: 73.1 }),
+        observation('2026-08-15', 'source-b', { body_fat_pct: 18.2 }),
+      ] };
+    },
+    async getBodyStatsRange() { rangeCalls += 1; return []; },
+    async saveBodyStats() { throw new Error('ambiguous source must not write'); },
+  };
+  const result = await syncNtBodyMeasurements({ settings, api, manual: true, now: Date.parse('2026-09-26T12:00:00Z') });
+  assert.equal(result.status, 'source-selection-required');
+  assert.equal(rangeCalls, 0);
+  assert.equal(settings.ntBodySource.get(), '');
+});
+
+test('switching away from the previously synchronized source is blocked before any body read/write side effects', async () => {
+  const now = Date.parse('2026-09-26T12:00:00Z');
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store('source-b'), ntBodySyncedSource: store('source-a'), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(73.1),
+  };
+  let rangeCalls = 0;
+  let writes = 0;
+  const api = {
+    async getNtBodyMeasurements() {
+      return { measurements: [observation('2026-08-15', 'source-b', { weight_kg: 74.0 })] };
+    },
+    async getBodyStatsRange() { rangeCalls += 1; return []; },
+    async saveBodyStats() { writes += 1; },
+  };
+  const result = await syncNtBodyMeasurements({ settings, api, manual: true, now });
+  assert.equal(result.status, 'source-change-blocked');
+  assert.equal(result.syncedSource, 'source-a');
+  assert.equal(result.source, 'source-b');
+  assert.equal(rangeCalls, 0);
+  assert.equal(writes, 0);
+  assert.equal(settings.currentWeightKg.get(), 73.1);
+  assert.equal(settings.ntBodyLastSyncAt.get(), null);
+});
+
+test('same previously synchronized source remains allowed', async () => {
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store('source-a'), ntBodySyncedSource: store('source-a'), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  const api = {
+    async getNtBodyMeasurements() {
+      return { measurements: [observation('2026-08-15', 'source-a', { weight_kg: 73.1 })] };
+    },
+    async getBodyStatsRange() { return [{ date: '2026-08-15', stats: { weight: 73.1 } }]; },
+    async saveBodyStats() { throw new Error('identical observation must not write'); },
+  };
+  const result = await syncNtBodyMeasurements({ settings, api, manual: true, now: Date.parse('2026-09-26T12:00:00Z') });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.source, 'source-a');
+});
+
+test('source provenance marker is set before writes and survives a partial sync failure', async () => {
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store('source-a'), ntBodySyncedSource: store(''), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  const api = {
+    async getNtBodyMeasurements() {
+      return { measurements: [observation('2026-08-15', 'source-a', { weight_kg: 73.1 })] };
+    },
+    async getBodyStatsRange() { return []; },
+    async saveBodyStats() { throw new Error('simulated write failure'); },
+  };
+  const first = await syncNtBodyMeasurements({ settings, api, manual: true, now: Date.parse('2026-09-26T12:00:00Z') });
+  assert.equal(first.status, 'error');
+  assert.equal(settings.ntBodySyncedSource.get(), 'source-a');
+  assert.equal(settings.ntBodyLastSyncAt.get(), null);
+
+  settings.ntBodySource.set('source-b');
+  let rangeCalls = 0;
+  const second = await syncNtBodyMeasurements({
+    settings,
+    api: {
+      async getNtBodyMeasurements() {
+        return { measurements: [observation('2026-08-15', 'source-b', { weight_kg: 74 })] };
+      },
+      async getBodyStatsRange() { rangeCalls += 1; return []; },
+    },
+    manual: true,
+    now: Date.parse('2026-09-26T12:01:00Z'),
+  });
+  assert.equal(second.status, 'source-change-blocked');
+  assert.equal(rangeCalls, 0);
+});
