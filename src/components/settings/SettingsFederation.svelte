@@ -73,7 +73,7 @@
     await test({ silentOk: false });
   }
 
-  async function test({ silentOk = false, silentFail = false } = {}) {
+  async function test({ silentOk = false, silentFail = false, preserveExistingOnFail = false } = {}) {
     if (!canTest) {
       showError($_('settings_federation.url_token_required'));
       return;
@@ -116,8 +116,10 @@
         capabilities = null;
         bodyStatus = '';
         bodyError = '';
-        ntFederationEnabled.set(false);
-        ntConnectionVerified.set(false);
+        if (!preserveExistingOnFail) {
+          ntFederationEnabled.set(false);
+          ntConnectionVerified.set(false);
+        }
         if (!silentFail) showError(lastError);
       }
     } catch (e) {
@@ -126,8 +128,10 @@
       capabilities = null;
       bodyStatus = '';
       bodyError = '';
-      ntFederationEnabled.set(false);
-      ntConnectionVerified.set(false);
+      if (!preserveExistingOnFail) {
+        ntFederationEnabled.set(false);
+        ntConnectionVerified.set(false);
+      }
       if (!silentFail) showError(lastError);
     } finally { testing = false; }
   }
@@ -142,6 +146,7 @@
       bodySources = result.sources || [];
       if (result.status === 'error') bodyError = result.error;
       else if (result.status === 'source-selection-required') bodyError = $_('settings_federation.body_sync_source_required');
+      else if (result.status === 'source-change-blocked') bodyError = $_('settings_federation.body_sync_source_change_blocked', { values: { source: result.syncedSource || '' } });
       else if (result.status === 'selected-empty') bodyError = $_('settings_federation.body_sync_selected_empty');
       else if (result.status === 'no-data') bodyError = $_('settings_federation.body_sync_no_data');
       else if (result.status === 'ok') showSuccess($_('settings_federation.body_sync_complete'));
@@ -166,7 +171,7 @@
   // body-sync scope state after navigating away and back.
   onMount(() => {
     if ($ntConnectionVerified && $ntFederationEnabled && canTest) {
-      test({ silentOk: true, silentFail: true });
+      test({ silentOk: true, silentFail: true, preserveExistingOnFail: true });
     }
   });
 </script>
