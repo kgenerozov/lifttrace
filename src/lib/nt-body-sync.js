@@ -12,6 +12,8 @@ const LB_PER_KG = 2.2046226218;
 const SYNC_WINDOW_DAYS = 90;
 export const BODY_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+let inFlight = null;
+
 function finiteNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -62,7 +64,15 @@ export function mapNtObservationToLt(measurement, unit = 'kg') {
 export function changedMappedStats(existingStats, incomingStats) {
   const existing = existingStats && typeof existingStats === 'object' ? existingStats : {};
   return Object.fromEntries(
-    Object.entries(incomingStats || {}).filter(([key, value]) => existing[key] !== value)
+    Object.entries(incomingStats || {}).filter(([key, value]) => {
+      // `body_fat` is a legacy spelling. Keep one final write for rows that
+      // still carry it so the server merge can normalize the row to bodyFat;
+      // once normalized, the same sync is a no-op again.
+      if (key === 'bodyFat' && Object.prototype.hasOwnProperty.call(existing, 'body_fat')) {
+        return value !== undefined;
+      }
+      return existing[key] !== value;
+    })
   );
 }
 
@@ -111,10 +121,10 @@ async function defaultSettings() {
  * `manual` bypasses the six-hour foreground throttle but remains opt-in for
  * automatic runs. Errors are returned rather than thrown for silent callers.
  */
-export async function syncNtBodyMeasurements({ manual = false, api = LtApi, settings, now = Date.now() } = {}) {
+async function _syncNtBodyMeasurements({ manual = false, api = LtApi, settings, now = Date.now() } = {}) {
   try {
     const s = settings || await defaultSettings();
-    if (!manual && (!settingValue(s.ntBodySyncEnabled) || !settingValue(s.ntFederationEnabled))) {
+    if (!settingValue(s.ntFederationEnabled) || (!manual && !settingValue(s.ntBodySyncEnabled))) {
       return { status: 'disabled' };
     }
 
@@ -131,7 +141,6 @@ export async function syncNtBodyMeasurements({ manual = false, api = LtApi, sett
 
     const decision = resolveBodySource(response.measurements, selectedSource);
     if (decision.status === 'source-selection-required') {
-      if (s.ntBodyLastSyncAt?.set) s.ntBodyLastSyncAt.set(now);
       return { status: decision.status, sources: decision.sources };
     }
     if (decision.status === 'no-data' || decision.status === 'selected-empty') {
@@ -174,4 +183,17 @@ export async function syncNtBodyMeasurements({ manual = false, api = LtApi, sett
   } catch (error) {
     return { status: 'error', error: error?.message || 'Body sync failed' };
   }
+}
+
+/**
+ * Shared manual/automatic sync entry point. Concurrent lifecycle events and
+ * a user click join the same operation rather than issuing duplicate reads or
+ * writes. The next caller can start only after the current operation settles.
+ */
+export function syncNtBodyMeasurements(options = {}) {
+  if (inFlight) return inFlight;
+  inFlight = _syncNtBodyMeasurements(options).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
 }

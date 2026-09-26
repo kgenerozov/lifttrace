@@ -49,6 +49,8 @@ test('body sync settings and lifecycle are opt-in and foreground-triggered', () 
   }
   assert.match(federation, /disabled=\{!bodyReadAvailable \|\| !\$ntFederationEnabled\}/);
   assert.match(federation, /syncNtBodyMeasurements\(\{ manual: true \}\)/);
+  assert.match(federation, /on:change=\{onBodySyncToggle\}/);
+  assert.match(federation, /if \(event\.detail\) syncBodyNow\(\);/);
   assert.match(app, /await loadAuthState\(\);[\s\S]{0,260}_syncNtBodySilently\(\);/);
   assert.match(app, /visibilitychange[\s\S]{0,140}_syncNtBodySilently\(\);/);
   assert.match(app, /addListener\('resume'[\s\S]{0,180}_syncNtBodySilently\(\);/);

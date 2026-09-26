@@ -703,6 +703,7 @@
     "body_sync_title":       "Body Measurements",
     "body_sync_enable":      "Import from NutriTrace",
     "body_sync_enable_hint": "Opt in to sync weight and body fat from one NutriTrace source into LiftTrace.",
+    "body_sync_current_weight_hint": "This can update the current weight used for LiftTrace calorie estimates.",
     "body_sync_scope_missing": "Workout federation is connected. Add the read:body-measurements scope to this NutriTrace token to enable body sync.",
     "body_sync_source":      "Source",
     "body_sync_source_hint": "Choose one exact NutriTrace source; measurements from different sources are never combined.",

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   changedMappedStats,
   collectRelevantSources,
+  BODY_SYNC_INTERVAL_MS,
   mapNtObservationToLt,
   newestWeightMeasurement,
   resolveBodySource,
@@ -68,6 +69,23 @@ test('identical mapped fields are a no-op and manual fields are not compared or 
   );
 });
 
+test('legacy body_fat requests one normalization write, then becomes idempotent', () => {
+  assert.deepEqual(
+    changedMappedStats(
+      { weight: 73.1, body_fat: 17.2, waist: 88 },
+      { weight: 73.1, bodyFat: 17.2 },
+    ),
+    { bodyFat: 17.2 },
+  );
+  assert.deepEqual(
+    changedMappedStats(
+      { weight: 73.1, bodyFat: 17.2, waist: 88 },
+      { weight: 73.1, bodyFat: 17.2 },
+    ),
+    {},
+  );
+});
+
 test('newest weight is selected by date, not by source priority', () => {
   const newest = newestWeightMeasurement([
     observation('2026-08-16', 'withings', { body_fat_pct: 18 }),
@@ -99,7 +117,92 @@ test('multiple unselected sources produce no body-stat writes', async () => {
   assert.equal(result.status, 'source-selection-required');
   assert.deepEqual(result.sources, ['a', 'b']);
   assert.equal(rangeCalls, 0);
-  assert.equal(settings.ntBodyLastSyncAt.get(), Date.parse('2026-09-26T12:00:00Z'));
+  assert.equal(settings.ntBodyLastSyncAt.get(), null, 'unsafe source ambiguity is not a successful sync');
+});
+
+test('automatic sync is default-off and does not request NutriTrace body data', async () => {
+  const settings = {
+    ntBodySyncEnabled: store(false), ntBodySource: store(''), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  let requests = 0;
+  const result = await syncNtBodyMeasurements({
+    settings,
+    api: { async getNtBodyMeasurements() { requests += 1; return { measurements: [] }; } },
+    now: Date.parse('2026-09-26T12:00:00Z'),
+  });
+  assert.deepEqual(result, { status: 'disabled' });
+  assert.equal(requests, 0);
+});
+
+test('automatic sync runs once when stale, records writes=0 success, and throttles for six hours', async () => {
+  const now = Date.parse('2026-09-26T12:00:00Z');
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store('withings'), ntBodyLastSyncAt: store(now - BODY_SYNC_INTERVAL_MS - 1),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  let requests = 0;
+  const api = {
+    async getNtBodyMeasurements() {
+      requests += 1;
+      return { measurements: [observation('2026-08-15', 'withings', { weight_kg: 73.1 })] };
+    },
+    async getBodyStatsRange() { return [{ date: '2026-08-15', stats: { weight: 73.1 } }]; },
+    async saveBodyStats() { throw new Error('writes=0 path must not write'); },
+  };
+  const first = await syncNtBodyMeasurements({ settings, api, now });
+  assert.equal(first.status, 'ok');
+  assert.equal(first.writes, 0);
+  assert.equal(first.currentWeightKg, 73.1);
+  assert.equal(settings.ntBodyLastSyncAt.get(), now);
+
+  const second = await syncNtBodyMeasurements({ settings, api, now: now + 1000 });
+  assert.equal(second.status, 'throttled');
+  assert.equal(requests, 1);
+});
+
+test('manual sync bypasses the six-hour throttle even when auto-sync is off', async () => {
+  const now = Date.parse('2026-09-26T12:00:00Z');
+  const settings = {
+    ntBodySyncEnabled: store(false), ntBodySource: store('withings'), ntBodyLastSyncAt: store(now),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  let requests = 0;
+  const api = {
+    async getNtBodyMeasurements() {
+      requests += 1;
+      return { measurements: [observation('2026-08-15', 'withings', { weight_kg: 73.1 })] };
+    },
+    async getBodyStatsRange() { return [{ date: '2026-08-15', stats: { weight: 73.1 } }]; },
+  };
+  const result = await syncNtBodyMeasurements({ manual: true, settings, api, now: now + 1000 });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.writes, 0);
+  assert.equal(requests, 1);
+});
+
+test('simultaneous lifecycle sync calls share one in-flight operation', async () => {
+  const settings = {
+    ntBodySyncEnabled: store(true), ntBodySource: store('withings'), ntBodyLastSyncAt: store(null),
+    ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
+  };
+  let requests = 0;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const api = {
+    async getNtBodyMeasurements() {
+      requests += 1;
+      await gate;
+      return { measurements: [observation('2026-08-15', 'withings', { weight_kg: 73.1 })] };
+    },
+    async getBodyStatsRange() { return [{ date: '2026-08-15', stats: { weight: 73.1 } }]; },
+  };
+  const first = syncNtBodyMeasurements({ settings, api, now: Date.parse('2026-09-26T12:00:00Z') });
+  const second = syncNtBodyMeasurements({ settings, api, now: Date.parse('2026-09-26T12:00:01Z') });
+  assert.strictEqual(second, first);
+  release();
+  await first;
+  assert.equal(requests, 1);
 });
 
 test('selected source maps display units, preserves manual stats, updates currentWeightKg, and is idempotent', async () => {

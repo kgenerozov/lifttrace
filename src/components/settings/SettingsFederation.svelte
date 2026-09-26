@@ -151,6 +151,10 @@
     } finally { bodySyncing = false; }
   }
 
+  function onBodySyncToggle(event) {
+    if (event.detail) syncBodyNow();
+  }
+
   function formatLastSync(value) {
     if (!value) return '';
     try { return new Date(Number(value)).toLocaleString(); } catch { return ''; }
@@ -199,9 +203,11 @@
           <div class="setting-row">
             <div class="setting-label-group">
               <span class="setting-label">{$_('settings_federation.body_sync_enable')}</span>
-              <span class="setting-hint">{$_('settings_federation.body_sync_enable_hint')}</span>
+              <span class="setting-hint">
+                {$_('settings_federation.body_sync_enable_hint')} {$_('settings_federation.body_sync_current_weight_hint')}
+              </span>
             </div>
-            <Toggle bind:checked={$ntBodySyncEnabled} disabled={!bodyReadAvailable || !$ntFederationEnabled} />
+            <Toggle bind:checked={$ntBodySyncEnabled} on:change={onBodySyncToggle} disabled={!bodyReadAvailable || !$ntFederationEnabled} />
           </div>
 
           {#if $ntConnectionVerified && !bodyReadAvailable}
@@ -314,6 +320,10 @@
   .body-sync-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 0; }
   .body-sync-warning { color: var(--warning, #f59e0b); font-size: 12px; line-height: 1.45; margin: 6px 0; }
   .body-sync-ok { color: var(--success, #22c55e); font-size: 12px; line-height: 1.45; margin: 6px 0; }
+  .body-sync-heading,
+  .body-sync-actions,
+  .body-sync-warning,
+  .body-sync-ok { padding-inline: 16px; }
   code {
     font-family: 'SFMono-Regular', 'Menlo', monospace;
     font-size: 11px;
