@@ -43,9 +43,17 @@ test('workout-only federation tokens remain valid while body read is optional', 
 });
 
 test('body sync settings and lifecycle are opt-in and foreground-triggered', () => {
+  // Regression guard: persisted body-sync settings must be registered in the
+  // SERVER_SETTINGS set so scheduleSave()/the store setter actually PUT them to
+  // the server. Missing membership silently drops persistence.
+  const ssStart = settings.indexOf('const SERVER_SETTINGS');
+  const ssEnd = settings.indexOf(']);', ssStart);
+  assert.ok(ssStart >= 0 && ssEnd > ssStart, 'SERVER_SETTINGS literal not found');
+  const serverSettings = settings.slice(ssStart, ssEnd);
   for (const key of ['ntBodySyncEnabled', 'ntBodySource', 'ntBodyLastSyncAt']) {
     assert.match(settings, new RegExp(`'${key}'`));
     assert.match(settings, new RegExp(`createSettingStore\\('${key}'`));
+    assert.match(serverSettings, new RegExp(`'${key}'`));
   }
   assert.match(federation, /disabled=\{!bodyReadAvailable \|\| !\$ntFederationEnabled\}/);
   assert.match(federation, /syncNtBodyMeasurements\(\{ manual: true \}\)/);
