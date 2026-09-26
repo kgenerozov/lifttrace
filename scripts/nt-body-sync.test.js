@@ -242,16 +242,19 @@ test('auto-selected source stays automatic while recording separate sync provena
     ntBodySyncEnabled: store(true), ntBodySource: store(''), ntBodySyncedSource: store(''), ntBodyLastSyncAt: store(null),
     ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
   };
+  let savedSource = null;
   const api = {
     async getNtBodyMeasurements() {
       return { measurements: [observation('2026-08-15', 'source-a', { weight_kg: 73.1 })] };
     },
+    async saveSetting(key, value) { assert.equal(key, 'ntBodySyncedSource'); savedSource = value; },
     async getBodyStatsRange() { return [{ date: '2026-08-15', stats: { weight: 73.1 } }]; },
     async saveBodyStats() { throw new Error('identical observation must not write'); },
   };
   const result = await syncNtBodyMeasurements({ settings, api, manual: true, now: Date.parse('2026-09-26T12:00:00Z') });
   assert.equal(result.status, 'ok');
   assert.equal(settings.ntBodySource.get(), '', 'automatic mode must remain automatic');
+  assert.equal(savedSource, 'source-a', 'provenance must reach server persistence before body writes');
   assert.equal(settings.ntBodySyncedSource.get(), 'source-a', 'separate provenance marker records the imported source');
 });
 
@@ -324,12 +327,21 @@ test('source provenance marker is set before writes and survives a partial sync 
     ntBodySyncEnabled: store(true), ntBodySource: store('source-a'), ntBodySyncedSource: store(''), ntBodyLastSyncAt: store(null),
     ntFederationEnabled: store(true), weightUnit: store('kg'), currentWeightKg: store(null),
   };
+  let persistedBeforeWrite = false;
   const api = {
     async getNtBodyMeasurements() {
       return { measurements: [observation('2026-08-15', 'source-a', { weight_kg: 73.1 })] };
     },
+    async saveSetting(key, value) {
+      assert.equal(key, 'ntBodySyncedSource');
+      assert.equal(value, 'source-a');
+      persistedBeforeWrite = true;
+    },
     async getBodyStatsRange() { return []; },
-    async saveBodyStats() { throw new Error('simulated write failure'); },
+    async saveBodyStats() {
+      assert.equal(persistedBeforeWrite, true, 'source provenance must be persisted before the first body PUT');
+      throw new Error('simulated write failure');
+    },
   };
   const first = await syncNtBodyMeasurements({ settings, api, manual: true, now: Date.parse('2026-09-26T12:00:00Z') });
   assert.equal(first.status, 'error');
