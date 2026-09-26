@@ -23,6 +23,7 @@ const SERVER_SETTINGS = new Set([
   'pageBanners', 'bannerStyle', 'bannerAnimation',
   // NutriTrace federation — workout calorie sync (Phase 2)
   'ntInstanceUrl', 'ntInstanceToken', 'ntFederationEnabled', 'ntConnectionVerified',
+  'ntBodySyncEnabled', 'ntBodySource', 'ntBodyLastSyncAt',
   'screenKeepAwake', 'goalCelebrations', 'autoFillLastWeights', 'showCompletionSummary', 'favoriteExercises', 'customEquipment',
   'exerciseReorderMethod', 'autoCollapseCompleted', 'autoNameWorkouts', 'confirmExerciseRemoval',
   'autoGenerateWarmups', 'trackRpe',
@@ -372,6 +373,11 @@ export const ntFederationEnabled = createSettingStore('ntFederationEnabled', fal
 // Mirrors SettingsTrace's aiKeyVerified pattern. Cleared by any field edit
 // in SettingsFederation; set true by a successful /api/nt/test response.
 export const ntConnectionVerified = createSettingStore('ntConnectionVerified', false);
+// Optional NutriTrace body-measurement import. The source is an exact NT
+// source name; an empty value means the sync must resolve a single source.
+export const ntBodySyncEnabled = createSettingStore('ntBodySyncEnabled', false);
+export const ntBodySource = createSettingStore('ntBodySource', '');
+export const ntBodyLastSyncAt = createSettingStore('ntBodyLastSyncAt', null);
 
 // In-app update check cadence. Hours between GitHub-tag + PWA-SW checks
 // when the app is open. 0 = manual only (turns off every auto-check —
