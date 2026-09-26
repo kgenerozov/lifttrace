@@ -164,6 +164,11 @@ async function _syncNtBodyMeasurements({ manual = false, api = LtApi, settings, 
     // Set the safety marker before writes so a partial failure cannot make a
     // subsequent run switch providers and mix mapped fields.
     if (!syncedSource && s.ntBodySyncedSource?.set) {
+      // Persist provenance on the server before the first body-stat write.
+      // The regular settings store is debounced, so relying on set() alone
+      // would leave a crash window where imported data existed without its
+      // source marker.
+      await api.saveSetting('ntBodySyncedSource', source);
       s.ntBodySyncedSource.set(source);
     }
     const sourceMeasurements = response.measurements.filter(m => m.source === source);
